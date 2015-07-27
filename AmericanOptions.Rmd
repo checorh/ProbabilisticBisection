@@ -1,0 +1,166 @@
+---
+title: "Information directed sampling for stochastic root finding"
+author: "Sergio Rodriguez"
+date: "July 26, 2015"
+output: html_document
+---
+
+### Example: American put option
+
+```{r,echo=FALSE,warnings=FALSE,message=FALSE}
+library(thesis)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(plyr)
+library(gridExtra)
+library(grid)
+library(knitr)
+
+opts_chunk$set(echo=FALSE,warnings=FALSE,message=FALSE,comment=NA)
+```
+
+
+```{r,fig.width=8,fig.height=8}
+source("/Users/checorh/Documents/PHD Thesis/ProbabilisticBisection/ProbabilisticBisection.R") # for american put oracle
+
+# Load noisy function
+#source("/Users/checorh/Documents/PHD Thesis/ProbabilisticBisection/AmericanOptions/TimingValueFunction.R") # for american put oracle
+
+# Plot function
+sampling.locations <- seq(0,40,by=.5)
+y <- sapply(sampling.locations,function(x){am.put.oracle(x,K=40,boundaries=bdr1,sigma=0.2,r=0.06,dt=0.04)})                          
+
+p1 <- qplot(x=sampling.locations,y=y,geom="point",
+            ylab="z(x)=g(x) + noise(x)",
+            xlab="Sampling Locations (x)",
+            main="Timing value function: g(x)=T(t,x)") + 
+  geom_hline(yintercept=0,lty=2) 
+
+p1
+```
+
+### Probability of correct oracle response estimation
+
+The probability of correct oracle answers $p(x)$ is estimated off-line and a priori. To do so, I use a grid of 100 equidistant points over $(0,40)$ such that 20 function evaluations are made at each sampling location. 
+
+#### Logistic regression over sampling locations
+
+Let $s(x) = \mathbb{P}[Y(x)=-1]$ be the probability of oracle indicating a right move when sampling at $x$ (the underlying funtion $g$ is increasing). In order to estimate $s(x)$ we consider the model:
+
+\[
+  \log(\frac{s(x)}{1-s(x)}) \equiv \mbox{logit}(s(x)) = \beta_{0} + \beta_{1}x + \beta_{2}x^{2} + \beta_{2}x^{3} 
+\]
+
+Given the estimate of $s(x)$, the probability of correct oracle  responses $p(x)$ is estimated by:
+
+\[
+p(x) = \left\{
+\begin{array}{cc}
+s(x) & \mbox{if $s(x)>1/2$} \\
+1-s(x) & \mbox{if $s(x)<=1/2$} 
+\end{array}
+\right.
+\]
+
+
+```{r,fig.width=14,fig.height=8}
+set.seed(1) # Set seed
+
+# Redefine noisy function
+g <- function(x){am.put.oracle(x,K=40,boundaries=bdr1,sigma=0.2,r=0.06,dt=0.04)}
+
+# 100 equidistant points measured 20 times
+n.times=20
+x=rep(seq(0,38,length=100),n.times) 
+y.prob=(sign2(g(x)) + 1)/2
+
+# logistic regression with cubic term: success is 
+# observing a negative sign
+p.fit <- glm(y.prob~x + I(x^2) + I(x^3) + I(x^4),family = "binomial")
+p.fit  <- step(p.fit,direction = "back",trace=0) # model selection
+
+
+# plot model
+p.x <- predict(p.fit,newdata=data.frame(x=seq(0,38,length=100)),
+               type = "response",
+               se.fit = TRUE)
+
+p2 <- qplot(x=seq(0,38,length=100),y=p.x$fit,ylim=c(0,1),
+            geom="line",
+            ylab="s(x)=P(Y(x) = -1)",
+            xlab="Sampling location (x)",
+            main="Logistic regression estimation of s(x)")
+
+# add empirical proportion 
+p.emp <- table(y.prob,x)[2,]/n.times
+p2 <- p2 + geom_point(aes(x=seq(0,38,length=100),y=p.emp),colour="blue") + 
+  geom_hline(y=1/2,lty=2)
+
+
+#####
+# Probablity of correct response
+#####
+p <- sapply(x,function(x)p.correct(p.fit,sampling.point=x))
+p3 <- qplot(x=x,y=p,geom="line",ylab="p(x)",
+      xlab="Sampling location (x)",
+      main="Probability of correct response")
+
+grid.arrange(p2,p3,ncol=2)
+```
+
+### Probabilistic Bisection for Stochastic Root Finding
+
+- Six sampling heuristics are implemented:
+
+1. Uniformly over $[0,40]$
+2. Uniformly over the quantiles of $f_{n}$
+3. Median of $f_{n}$
+4. Maximizer of mutual information between root location and oracle replies
+5. Quantile with highest mutual information (20-80 are chosen)
+6. Systematically alternate at the 20-80 quantiles
+
+For now I only ran one single MonteCarlo iteration for T=`r (TotalwallClock=1000)` total wall-clock interation using the following arbitrarily chosen batch-sizes: $K \in \{1,5,25,50\}$, resulting in $N = 1000,200,40,20$ macro-iterations respectively. MC=1 iteration is about 1.8 min. Considerations about the number of MC iteration should be made.
+
+
+```{r,fig.width=14,fig.height=12}
+dd=data.frame(x=c(0,40),f=c(1/40,1/40)) # prior
+TotalwallClock=1000
+#Rprof("fun.out")
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+                                  which.scheme=1:6,
+                                  OracleCalls=c(1,5,25,50),
+                                  wallClock=TotalwallClock,
+                                  noisy.function=g,
+                                  dd=dd)
+#Rprof(NULL)
+#summaryRprof("fun.out")
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+
+diag.table <-  diag.data %>% 
+  filter(wallClock==TotalwallClock) %>%
+  spread(key=OracleCalls,value="value") %>%
+  dplyr::select(-wallClock)
+
+ kable(diag.table,format="markdown",digits = 4)
+```
+
+### Sampling scheme accuracy
+ 
+```{r,fig.width=14,fig.height=12}
+data.dens <- pbaData(which.scheme=1:6,
+                     OracleCalls=c(1,5,10,20,50),
+                     wallClock = 1000,
+                     noisy.function=g)
+
+p <- QuantilePlots(data.dens)
+p
+```
+ 
+ 
+
+
+
+
+

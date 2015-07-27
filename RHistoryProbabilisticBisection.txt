@@ -1,0 +1,512 @@
+wallClock,
+noisy.function=g,
+dd=dd)
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+dd=dd)
+head(diag.data)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall")
+SchemeEvaluationData <- function(MonteCarlo = 2,
+which.scheme=1:6,
+OracleCalls=c(1,5,10,20,50),
+wallClock = 100,
+noisy.function,
+dd){
+require(plyr)
+require(dplyr)
+require(reshape2)
+# Determine which sampling scheme to plot
+sampling.scheme = c("Uniform-x","Uniform-q",
+"Median",
+"Argmax MutualInfo",
+"q-argmax MutualInfo",
+"q-argmax alternating")
+if(sum(wallClock%%OracleCalls)!=0){
+stop("Number of oracle calls should be a  multiple of total number of wall-clock iterations")
+} else{
+# Total number of macro-iterations
+Total.MacroIter=wallClock/OracleCalls
+}
+# matrices for summary statistics
+entropy.model <- matrix(NA,wallClock,length(OracleCalls))
+iqr.fn <- matrix(NA,wallClock,length(OracleCalls))
+p.eff<- matrix(NA,wallClock,length(OracleCalls))
+estRoot <- matrix(NA,wallClock,length(OracleCalls))
+# identifiers for rows and columns of performance matrix
+l <- paste0("Oracle.",OracleCalls)
+colnames(entropy.model) <- colnames(estRoot) <- l
+colnames(iqr.fn) <- colnames(p.eff) <- l
+####
+####
+# list for keeping track about diagnostics in each method
+####
+model.diag <- list()
+# iterate over sampling scheme
+for(scheme in which.scheme){
+# Reinitialize lists at each sampling scheme
+diagnostics=list()
+diagnostics$entropy.overall=list()
+diagnostics$iqr.overall=list()
+diagnostics$estRoot.overall=list()
+diagnostics$p.effective=list()
+print(paste0("Sampling Scheme:",scheme))
+for(k in 1:MonteCarlo){ # number of replicates per sampling scheme
+print(paste0("MonteCarlo iteration",k))
+# number of calls to the oracle per sampling location
+for(j in 1:length(OracleCalls)){
+# Number of oracle calls per sampling location
+n.boost <- OracleCalls[j]
+# run PBA algorith fixing the following parametes:
+# i. Total number of Macro iterations
+# ii. Sampling scheme
+# iii. number of oracle calls
+pba <- PBA.wallClock2(dd,N=Total.MacroIter[j],scheme,n.boost,noisy.function)
+# Compute summary statistics
+idx <- seq(1,wallClock,by=n.boost)
+# Empirical entropy
+entropy.model[,j] <- rep(sapply(pba$post[idx],thesis::emp.entropy),
+each=n.boost)
+#  IQR
+if(length(idx)==1){
+iqr.fn[,j] <- rep(pba$est.quant[idx,4] - pba$est.quant[idx,3],each=n.boost)
+} else{
+iqr.fn[,j] <- rep(apply(pba$est.quant[idx,],1,function(x)x[4]-x[3]),each=n.boost)
+}
+# Estimated root
+estRoot[,j]  <- rep(pba$est.roots[idx],each=n.boost)
+# effective p
+p.eff[,j] <- rep(pba$p,each=n.boost)
+} # finish j loop
+# Keep track of resulting values in a list
+diagnostics$entropy.overall[[paste0("MC.",k)]] <- entropy.model
+diagnostics$iqr.overall[[paste0("MC.",k)]] <- iqr.fn
+diagnostics$estRoot.overall[[paste0("MC.",k)]] <- estRoot
+diagnostics$p.effective[[paste0("MC.",k)]] <- p.eff
+} # end for loop in k
+model.diag[[sampling.scheme[scheme]]]  <- diagnostics
+} # end loop for sampling scheme
+# Prepare list for a data set
+#add index of wall-clock iteration
+ul0 = lapply(diag.list,function(x)lapply(x,function(x){lapply(x,function(x)cbind(wallClock=1:wallClock,x))}))
+# put MC simulations together per metric and per sampling scheme
+ul1 = lapply(ul0,function(x)lapply(x,function(x){ldply(x,.id="num.iter")}))
+# put metric together per sampling scheme
+ul2 = lapply(ul1,function(x)ldply(x,.id="PerformanceMetric"))
+ul3 = lapply(ul2,
+function(x){
+x %>%
+dplyr::group_by(PerformanceMetric,wallClock) %>%
+dplyr::summarise_each(funs(mean)) %>%
+dplyr::select(-num.iter)
+})
+ul4=ldply(ul3,.id="SamplingScheme")
+ul5=melt(ul4,id.vars=names(ul4)[1:3],variable.name="OracleCalls")
+return(ul5)
+}
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=50,
+noisy.function=g,
+dd=dd)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall")
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=200,
+noisy.function=g,
+dd=dd)
+SchemeEvaluationData <- function(MonteCarlo = 2,
+which.scheme=1:6,
+OracleCalls=c(1,5,10,20,50),
+wallClock = 100,
+noisy.function,
+dd){
+require(plyr)
+require(dplyr)
+require(reshape2)
+# Determine which sampling scheme to plot
+sampling.scheme = c("Uniform-x","Uniform-q",
+"Median",
+"Argmax MutualInfo",
+"q-argmax MutualInfo",
+"q-argmax alternating")
+if(sum(wallClock%%OracleCalls)!=0){
+stop("Number of oracle calls should be a  multiple of total number of wall-clock iterations")
+} else{
+# Total number of macro-iterations
+Total.MacroIter=wallClock/OracleCalls
+}
+# matrices for summary statistics
+entropy.model <- matrix(NA,wallClock,length(OracleCalls))
+iqr.fn <- matrix(NA,wallClock,length(OracleCalls))
+p.eff<- matrix(NA,wallClock,length(OracleCalls))
+estRoot <- matrix(NA,wallClock,length(OracleCalls))
+# identifiers for rows and columns of performance matrix
+l <- paste0("Oracle.",OracleCalls)
+colnames(entropy.model) <- colnames(estRoot) <- l
+colnames(iqr.fn) <- colnames(p.eff) <- l
+####
+####
+# list for keeping track about diagnostics in each method
+####
+model.diag <- list()
+# iterate over sampling scheme
+for(scheme in which.scheme){
+# Reinitialize lists at each sampling scheme
+diagnostics=list()
+diagnostics$entropy.overall=list()
+diagnostics$iqr.overall=list()
+diagnostics$estRoot.overall=list()
+diagnostics$p.effective=list()
+print(paste0("Sampling Scheme:",scheme))
+for(k in 1:MonteCarlo){ # number of replicates per sampling scheme
+print(paste0("MonteCarlo iteration",k))
+# number of calls to the oracle per sampling location
+for(j in 1:length(OracleCalls)){
+# Number of oracle calls per sampling location
+n.boost <- OracleCalls[j]
+# run PBA algorith fixing the following parametes:
+# i. Total number of Macro iterations
+# ii. Sampling scheme
+# iii. number of oracle calls
+pba <- PBA.wallClock2(dd,N=Total.MacroIter[j],scheme,n.boost,noisy.function)
+# Compute summary statistics
+idx <- seq(1,wallClock,by=n.boost)
+# Empirical entropy
+entropy.model[,j] <- rep(sapply(pba$post[idx],thesis::emp.entropy),
+each=n.boost)
+#  IQR
+if(length(idx)==1){
+iqr.fn[,j] <- rep(pba$est.quant[idx,4] - pba$est.quant[idx,3],each=n.boost)
+} else{
+iqr.fn[,j] <- rep(apply(pba$est.quant[idx,],1,function(x)x[4]-x[3]),each=n.boost)
+}
+# Estimated root
+estRoot[,j]  <- rep(pba$est.roots[idx],each=n.boost)
+# effective p
+p.eff[,j] <- rep(pba$p,each=n.boost)
+} # finish j loop
+# Keep track of resulting values in a list
+diagnostics$entropy.overall[[paste0("MC.",k)]] <- entropy.model
+diagnostics$iqr.overall[[paste0("MC.",k)]] <- iqr.fn
+diagnostics$estRoot.overall[[paste0("MC.",k)]] <- estRoot
+diagnostics$p.effective[[paste0("MC.",k)]] <- p.eff
+} # end for loop in k
+model.diag[[sampling.scheme[scheme]]]  <- diagnostics
+} # end loop for sampling scheme
+# Prepare list for a data set
+#add index of wall-clock iteration
+ul0 = lapply(model.diag,function(x)lapply(x,function(x){lapply(x,function(x)cbind(wallClock=1:wallClock,x))}))
+# put MC simulations together per metric and per sampling scheme
+ul1 = lapply(ul0,function(x)lapply(x,function(x){ldply(x,.id="num.iter")}))
+# put metric together per sampling scheme
+ul2 = lapply(ul1,function(x)ldply(x,.id="PerformanceMetric"))
+ul3 = lapply(ul2,
+function(x){
+x %>%
+dplyr::group_by(PerformanceMetric,wallClock) %>%
+dplyr::summarise_each(funs(mean)) %>%
+dplyr::select(-num.iter)
+})
+ul4=ldply(ul3,.id="SamplingScheme")
+ul5=melt(ul4,id.vars=names(ul4)[1:3],variable.name="OracleCalls")
+return(ul5)
+}
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=200,
+noisy.function=g,
+dd=dd)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall")
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",
+wallClock==200)
+wallClock = 1000
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+dd=dd)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",
+wallClock==wallClock)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",
+wallClock==wallClock)
+wallClock
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",wallClock==wallClock)
+head(diag.data)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall")
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",wallClock=1000)
+diag.data %>% filter(PerformanceMetric=="estRoot.overall",wallClock==1000)
+library(tidyr)
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock)
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock,-PerformanceMetric)
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+p
+SchemeEvaluationData <- function(MonteCarlo = 2,
+which.scheme=1:6,
+OracleCalls=c(1,5,10,20,50),
+wallClock = 100,
+noisy.function,
+dd){
+require(plyr)
+require(dplyr)
+require(reshape2)
+# Determine which sampling scheme to plot
+sampling.scheme = c("Uniform-x","Uniform-q",
+"Median",
+"Argmax MutualInfo",
+"q-argmax MutualInfo",
+"q-argmax alternating")
+if(sum(wallClock%%OracleCalls)!=0){
+stop("Number of oracle calls should be a  multiple of total number of wall-clock iterations")
+} else{
+# Total number of macro-iterations
+Total.MacroIter=wallClock/OracleCalls
+}
+# matrices for summary statistics
+entropy.model <- matrix(NA,wallClock,length(OracleCalls))
+iqr.fn <- matrix(NA,wallClock,length(OracleCalls))
+p.eff<- matrix(NA,wallClock,length(OracleCalls))
+estRoot <- matrix(NA,wallClock,length(OracleCalls))
+# identifiers for rows and columns of performance matrix
+l <- paste0("Oracle.",OracleCalls)
+colnames(entropy.model) <- colnames(estRoot) <- l
+colnames(iqr.fn) <- colnames(p.eff) <- l
+####
+####
+# list for keeping track about diagnostics in each method
+####
+model.diag <- list()
+# iterate over sampling scheme
+for(scheme in which.scheme){
+# Reinitialize lists at each sampling scheme
+diagnostics=list()
+diagnostics$estRoot.overall=list()
+diagnostics$entropy.overall=list()
+diagnostics$iqr.overall=list()
+diagnostics$p.effective=list()
+print(paste0("Sampling Scheme:",scheme))
+for(k in 1:MonteCarlo){ # number of replicates per sampling scheme
+print(paste0("MonteCarlo iteration",k))
+# number of calls to the oracle per sampling location
+for(j in 1:length(OracleCalls)){
+# Number of oracle calls per sampling location
+n.boost <- OracleCalls[j]
+pba <- PBA.wallClock2(dd,N=Total.MacroIter[j],
+scheme,n.boost,noisy.function)
+# Compute summary statistics
+idx <- seq(1,wallClock,by=n.boost)
+# Empirical entropy
+entropy.model[,j] <- rep(sapply(pba$post[idx],thesis::emp.entropy),
+each=n.boost)
+#  IQR
+if(length(idx)==1){
+iqr.fn[,j] <- rep(pba$est.quant[idx,4] - pba$est.quant[idx,3],each=n.boost)
+} else{
+iqr.fn[,j] <- rep(apply(pba$est.quant[idx,],1,function(x)x[4]-x[3]),each=n.boost)
+}
+# Estimated root
+estRoot[,j]  <- rep(pba$est.roots[idx],each=n.boost)
+# effective p
+p.eff[,j] <- rep(pba$p,each=n.boost)
+} # finish j loop
+# Keep track of resulting values in a list
+diagnostics$entropy.overall[[paste0("MC.",k)]] <- entropy.model
+diagnostics$iqr.overall[[paste0("MC.",k)]] <- iqr.fn
+diagnostics$estRoot.overall[[paste0("MC.",k)]] <- estRoot
+diagnostics$p.effective[[paste0("MC.",k)]] <- p.eff
+} # end for loop in k
+model.diag[[sampling.scheme[scheme]]]  <- diagnostics
+} # end loop for sampling scheme
+# Prepare list for a data set
+#add index of wall-clock iteration
+ul0 = lapply(model.diag,function(x)lapply(x,function(x){lapply(x,function(x)cbind(wallClock=1:wallClock,x))}))
+# put MC simulations together per metric and per sampling scheme
+ul1 = lapply(ul0,function(x)lapply(x,function(x){ldply(x,.id="num.iter")}))
+# put metric together per sampling scheme
+ul2 = lapply(ul1,function(x)ldply(x,.id="PerformanceMetric"))
+ul3 = lapply(ul2,
+function(x){
+x %>%
+dplyr::group_by(PerformanceMetric,wallClock) %>%
+dplyr::summarise_each(funs(mean)) %>%
+dplyr::select(-num.iter)
+})
+ul4=ldply(ul3,.id="SamplingScheme")
+ul5=melt(ul4,id.vars=names(ul4)[1:3],variable.name="OracleCalls")
+return(ul5)
+}
+wallClock = 1000
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+dd=dd)
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+levels(diag.data$PerformanceMetric)
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+dd=dd)
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+diag.data
+head(diag.data)
+levels(diag.data$PerformanceMetric)
+levels(diag.data$PerformanceMetric) <- c("Est. root","Entropy", "IQR","P(Correct)")
+p <- ggplot(data = diag.data, aes(x=as.integer(wallClock),y=value)) +
+geom_line(aes(colour=OracleCalls)) +
+facet_grid(PerformanceMetric~SamplingScheme,scales = "free_y")
+p + theme(legend.position = "bottom", # position of legend
+plot.title = element_text(size = 16), # size of overall title
+axis.title=element_text(size=14), # format of x,y lables
+strip.text.x = element_text(size = 10),
+strip.text.y = element_text(size = 12))
+p <- p + theme(legend.position = "bottom", # position of legend
+plot.title = element_text(size = 16), # size of overall title
+axis.title=element_text(size=14), # format of x,y lables
+strip.text.x = element_text(size = 10),
+strip.text.y = element_text(size = 12))
+p <- p+labs(title = paste0("Sampling scheme performance comparison. MC=",ellipsis$MC),
+x="Wall-clock time (T)",
+y="Performance Metric",
+colour="Batch-Size (K)")
+temp <- gregexpr("[0-9]+", levels(ul5$OracleCalls))
+SizeBatch <- unlist(regmatches(levels(ul5$OracleCalls), temp))
+p + scale_colour_discrete(labels=SizeBatch)
+SchemeEvaluationPlot <- function(diag.data, ...){
+ellipsis <- list(...)
+require(ggplot2)
+# change labels of facets
+levels(diag.data$PerformanceMetric) <- c("Est. root","Entropy", "IQR","P(Correct)")
+p <- ggplot(data = diag.data, aes(x=as.integer(wallClock),y=value)) +
+geom_line(aes(colour=OracleCalls)) +
+facet_grid(PerformanceMetric~SamplingScheme,scales = "free_y")
+p <- p + theme(legend.position = "bottom", # position of legend
+plot.title = element_text(size = 16), # size of overall title
+axis.title=element_text(size=14), # format of x,y lables
+strip.text.x = element_text(size = 10),
+strip.text.y = element_text(size = 12))
+p <- p+labs(title = paste0("Sampling scheme performance comparison. MC=",ellipsis$MC),
+x="Wall-clock time (T)",
+y="Performance Metric",
+colour="Batch-Size (K)")
+temp <- gregexpr("[0-9]+", levels(ul5$OracleCalls))
+SizeBatch <- unlist(regmatches(levels(ul5$OracleCalls), temp))
+p <- p + scale_colour_discrete(labels=SizeBatch)
+return(p)
+}
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+p
+ggsave(p,"/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/SchemeEvaluation.png")
+?ggsave
+ggsave("/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/SchemeEvaluation.png",
+p)
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock,-PerformanceMetric)
+diag.data
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock,-PerformanceMetric)
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000)
+diag.data
+diag.data <- SchemeEvaluationData(MonteCarlo = 1,
+which.scheme=1:6,
+OracleCalls=c(1,5,25,50),
+wallClock=1000,
+noisy.function=g,
+dd=dd)
+p <- SchemeEvaluationPlot(diag.data,MC=1)
+ggsave("/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/SchemeEvaluation.png",
+p)
+diag.data %>%
+filter(PerformanceMetric=="estRoot.overall",wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock,-PerformanceMetric)
+diag.data %>%
+filter(wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock,-PerformanceMetric)
+filter(wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+diag.data %>%
+filter(wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock)
+diag.data %>%
+filter(wallClock==1000) %>%
+spread(key=round(OracleCalls,4),value="value")   %>%
+dplyr::select(-wallClock)
+diag.data %>%
+filter(wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock)
+save(diag.data,
+file="/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/diag.data.RData")
+diag.table <-  diag.data %>%
+filter(wallClock==1000) %>%
+spread(key=OracleCalls,value="value")   %>%
+dplyr::select(-wallClock)
+kable(diag.table,format="markdown",digits = 4)
+load(file="/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/diag.data.RData")
+diag.table <-  diag.data %>%
+load(file="/Users/checorh/Documents/PHD Thesis/R/AmericanOptions/diag.data.RData")
+library(tidyr)
+source("/Users/checorh/Documents/PHD Thesis/ProbabilisticBisection/AmericanOptions/TimingValueFunction.R") # for american put oracle
+TimingValueFunction
+sign2
+SchemeEvaluationPlot
+ls()
+?lsf.str
+lsf.str()
+am.put.oracle
+EmpiricalProb
+g
+noisy.function
+p.correct
+lsf.str()
+print(lsf.str())
+PBA.am
+PBA.wallClock2
+pbaData
+posterior
+QuantileDataPlots
+QuantilePlots
+SamplingScheme
+SchemeEvaluationData
+SchemeEvaluationPlot
+sign2
+history()
+history()
+history(max.show = 500, reverse = FALSE)
+savehistory()
