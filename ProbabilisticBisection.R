@@ -31,67 +31,120 @@ am.put.oracle <- function(x,K=40,boundaries=bdr1,sigma=0.2,r=0.06,dt=0.04)
   return( payoff-stopPayoff)
 }
 
-# noisy function
+EmpiricalProb <- function(noisy.function=g,n.train,n.boost){
+  
+  # n.train equidistant points measured n.boost times
+  x <- rep(seq(0,40,length=n.train),n.boost) 
+  y.prob <- (sign2(noisy.function(x)) + 1)/2
+  
+  # logistic regression with cubic term: success is going right
+  # i.e. observing a negative sign
+  p.fit <- glm(y.prob~x + I(x^2) + I(x^3) + I(x^4),family = "binomial")
+  p.fit  <- step(p.fit,direction = "back") # model selection
+  
+  return(p.fit)
+}
+
+
 g <- function(x){am.put.oracle(x,K=40,boundaries=bdr1,sigma=0.2,r=0.06,dt=0.04)}
 
 
 
-# Estimate p_right with k-nn classifier
-
-# Nearest neighbor classifier
-p_knn <- function(x,y.prob,test.x){
-  require(class)  
-  knn.model <- knn(train = data.frame(x),
-                   test = data.frame(test.x), 
-                   cl = as.factor(y.prob), 
-                   k = floor(length(x)/3),
-                   l = 0, prob = TRUE, use.all = TRUE)
-  p.x <- attr(knn.model,"prob")
-  p.x[knn.model==0] <- 1-p.x[knn.model==0]
-  return(p.x)
-}
-
-# Logistic regression
-p_logit <- function(x,y.prob){  
-  p_logit <- glm(y.prob ~ x + I(x^2),family = "binomial")
-  p_logit <- step(p_logit,direction = "back",trace=0) # model selection
-  return(p_logit)
-}
+p.correct <- function(p.fit,sampling.point){
+  p.x <- predict(p.fit,newdata=data.frame(x=sampling.point),type = "response")  
+  p <- ifelse(p.x<1/2,1-p.x,p.x)
   
-  
-
-# Empirical probability of right response
-p.empirical <- function(sampling.point,method = "logit",...){
-  parms <- list(...)
-  if(method == "logit"){
-    p.x <- predict(parms$p.fit,newdata=data.frame(x=sampling.point),
-                   type = "response")        
-  } else if (method == "knn"){
-    p.x <- p_knn(parms$x,parms$y.prob,sampling.point)
-  }
-  return(p.x)
-}
-
-p.correct <- function(p.x,sampling.point){
-  p <- ifelse(p.x<=1/2,1-p.x,p.x)
   return(p)
 }
 
 oracle <- function(noisy.function,sampling.point,increasing=TRUE){
   if(increasing==TRUE){
-    y <- sign2(-noisy.function(sampling.point))
+    y <- sign(-noisy.function(sampling.point))
   } else{
-    y <- sign2(noisy.function(sampling.point))
+    y <- sign(noisy.function(sampling.point))
   }
   return(y)
 }
 
-##
+PBA.am <- function(dd,N,n.boost,...){
+  # Args:
+  # dd: a posterior density object
+  # N: Maximum number of iterations
+  # x.root: true root
+  # n.boost: Number of calls to the oracle at each sample
+  
+  post.dens <- list() # keep track of updated posterior densities
+  est.roots <- vector() # keep track of estimated root (median of posterior densitty)
+  sampling.point <- vector() # Sampling location obtained by minimizing cost function
+  est.quant <- matrix(NA,N,6) # See how the quantiles collapse toswars the true value
+  probs <- vector() # Vector of probability of moving right
+  oracle.ans <- matrix(NA,N,n.boost) # Vector of probability of moving right
+  sampling.quantile <- 0
+  v <- list() # list of values
+  
+  for(i in 1:N){ # number of macro iterations
+    
+    if(i!=1){ # After the first iteration we use the updated pdf of X^{*}
+      dd <- post.dens[[i-1]]
+    } 
+    
+    ###
+    # Sampling at argmax of mutual information
+    ####
+    f <- function(x){
+      i.gain=thesis::In(dd,p.correct(x),x)
+      return(i.gain)
+    }
+    
+    # maximizer of mutual information
+    x.sample <- optimize(f,interval=c(0,40),maximum=TRUE)$max # optimize information gain
+    
+    
+    # Probability of correct response
+    p <- p.correct(p.fit,sampling.point=x.sample)
+    
+    ###
+    # sampling in batch
+    ####
+    # Generate oracle calls in batch
+    y.oracle <- sign2(g(rep(x.sample,n.boost)))
+    
+    # Update posterior in batch
+    dd <- thesis::posterior.batch(dd,x.sample,-y.oracle,p)
+    
+    #dd <- posterior(dd,x.sample,y.oracle,p)
+    
+    ###
+    # Keep track of observed quantities
+    ###
+    
+    # sampling locations
+    sampling.point[i] <- x.sample
+    # p correct
+    probs[i] <- p
+    # oracle responses
+    oracle.ans[i,] <- y.oracle 
+    # updated posterior
+    post.dens[[i]] <- dd
+    # estimated root (posterior median)
+    est.roots[i] <- thesis::est.quantile(dd,.5)
+    # Keep track of quantiles
+    est.quant[i,] <- thesis::est.quantile(dd,c(.01,.05,.25,.75,.95,.99))
+    colnames(est.quant) <- paste0("q",c(.01,.05,.25,.75,.95,.99))
+    # keep track of the quantile corresponding to the sampling location
+    sampling.quantile[i] <- thesis::Fn.x(dd,sampling.point[i])
+    
+  }
+  
+  return(list(post.dens=post.dens,est.roots=est.roots,sampl.points = sampling.point,
+              est.quant = est.quant,p=probs,oracle.ans=oracle.ans,
+              sampling.quantile=sampling.quantile))
+}
 
 
 SamplingScheme <- function(dd,scheme=1,...){
   
-  parms <- list(...)
+  otherParms <- list(...)
   
   if(scheme==1){ # Uniformly over [0,1]
     sampling.point <-  runif(1,min=min(dd[,1]),max=max(dd[,1])) 
@@ -103,16 +156,10 @@ SamplingScheme <- function(dd,scheme=1,...){
     
     # information gain function
     f <- function(x){
-      p.x <- p.empirical(sampling.point=x,
-                         method = parms$method,
-                         p.fit = parms$p.fit,
-                         x = parms$x,
-                         y.prob = parms$y.prob)
-
-      i.gain=thesis::In(dd,p.correct(p.x,x),x)
+      i.gain=thesis::In(dd,p.correct(otherParms$p.fit,x),x)
       return(i.gain)
     }
-    
+    print(range(dd[,1]))
     sampling.point <- optimize(f,interval=range(dd[,1]),maximum=TRUE)$max
     
   } else if(scheme==5){ 
@@ -121,20 +168,8 @@ SamplingScheme <- function(dd,scheme=1,...){
     x1 <- thesis::est.quantile(dd,0.80) # 80th quantile of f_{n}
     x2 <- thesis::est.quantile(dd,0.20) # 20th quantile of f_{n}
     
-    p.x1 <- p.empirical(sampling.point=x1,
-                       method = parms$method,
-                       p.fit = parms$p.fit,
-                       x = parms$x,
-                       y.prob = parms$y.prob)
-    
-    p.x2 <- p.empirical(sampling.point=x2,
-                       method = parms$method,
-                       p.fit = parms$p.fit,
-                       x = parms$x,
-                       y.prob = parms$y.prob)
-    
-    info1 <- thesis::In(dd,p.correct(p.x1,x1),x1)
-    info2 <- thesis::In(dd,p.correct(p.x1,x2),x2)
+    info1 <- thesis::In(dd,p.correct(otherParms$p.fit,x1),x1)
+    info2 <- thesis::In(dd,p.correct(otherParms$p.fit,x2),x2)
     
     sampling.point <- c(x1,x2)[which.max(c(info1,info2))]
   } else if(scheme==6){ # Sampling systematically both sides of the root
@@ -152,14 +187,13 @@ SamplingScheme <- function(dd,scheme=1,...){
 }
 
 
-PBA.wallClock2 <- function(dd,N,scheme=1,n.boost,
-                           noisy.function,method,...){
+PBA.wallClock2 <- function(dd,N,scheme=1,n.boost,noisy.function,...){
   # Args:
   # dd: a posterior density object
   # N: Maximum number of iterations
   # x.root: true root
   # n.boost: Number of calls to the oracle at each sample
-  parms <- list(...)
+  
   # wall-clock time
   wallClock = N*n.boost
   
@@ -172,43 +206,16 @@ PBA.wallClock2 <- function(dd,N,scheme=1,n.boost,
   sampling.quantile <- 0
   v <- list() # list of values
   
-  
-  ##############
-  # Estimate model for p[Right_move]
-  ##############
-  x <- seq(min(dd[,1]),max(dd[,1]),length=parms$n.samples)
-  g.batch <- noisy.function(rep(x,parms$n.times))
-  g.mean <- tapply(g.batch,rep(x,parms$n.times),mean)
-  y.prob=as.numeric((sign2(g.mean) + 1)/2)
-  
-  if(method == "logit"){
-    p.fit <- p_logit(x,y.prob)
-  } 
-  
-  ######
-  
   macro.time <- (0:(N-1))*n.boost
   
-  
   for(i in 1:N){ # N= total number of macro iterations
-    #  print(paste("Macro iteration:",i))
+  #  print(paste("Macro iteration:",i))
     
     # Sampling location chosen according to scheme    
-    sampling.point[i] <-  SamplingScheme(dd,scheme,
-                                         method = method,
-                                         p.fit = p.fit,
-                                         x = x,
-                                         y.prob = y.prob,
-                                         i=i)
-
-    # Estimate empirical probability
-    p.x <- p.empirical(sampling.point[i],method,
-                       p.fit = p.fit,
-                       x = x,
-                       y.prob = y.prob)
+    sampling.point[i] <-  SamplingScheme(dd,scheme,p.fit=p.fit,i=i)
     
     # Probability of correct response
-    p <- p.correct(p.x,sampling.point[i])
+    p <- p.correct(p.fit,sampling.point[i])
     
     # call oracle as many times as n.boost for a fixed sampling location and update posterior density
     for(j in 1:n.boost){
@@ -247,11 +254,10 @@ PBA.wallClock2 <- function(dd,N,scheme=1,n.boost,
 }
 
 
-
 pbaData <- function(which.scheme=1:6,
-                    OracleCalls=c(1,5,10,20,50),
-                    wallClock = 100,
-                    noisy.function){  
+         OracleCalls=c(1,5,10,20,50),
+         wallClock = 100,
+         noisy.function){  
   require(reshape2)
   
   # List of names of sampling schemes
@@ -268,7 +274,7 @@ pbaData <- function(which.scheme=1:6,
     #(paste("SamplingScheme",k))
     dataTemp=NULL # updated in the for loop
     for(i in 1:length(OracleCalls)){ # over number of oracle calls
-      # print(paste("OracleCalls",OracleCalls[i]))
+     # print(paste("OracleCalls",OracleCalls[i]))
       
       pba=PBA.wallClock2(dd,N[i],scheme=k,n.boost = OracleCalls[i],noisy.function)
       
@@ -333,9 +339,9 @@ posterior <- function(dd,sampling.point,y.oracle,p){
 
 
 QuantileDataPlots <- function(which.scheme=1:6,
-                              OracleCalls=c(1,5,10,20,50),
-                              wallClock = 100,
-                              noisy.function){  
+         OracleCalls=c(1,5,10,20,50),
+         wallClock = 100,
+         noisy.function){  
   require(reshape2)
   
   # List of names of sampling schemes
@@ -406,12 +412,13 @@ QuantilePlots <- function(data.dens){
   return(p)
 }
 
+
 SchemeEvaluationData <- function(MonteCarlo = 2,
-                                 which.scheme=1:6,
-                                 OracleCalls=c(1,5,10,20,50),
-                                 wallClock = 100,
-                                 noisy.function,
-                                 dd){
+         which.scheme=1:6,
+         OracleCalls=c(1,5,10,20,50),
+         wallClock = 100,
+         noisy.function,
+         dd,...){
   
   require(plyr)
   require(dplyr)
@@ -462,7 +469,7 @@ SchemeEvaluationData <- function(MonteCarlo = 2,
     #print(paste0("Sampling Scheme:",scheme))
     
     for(k in 1:MonteCarlo){ # number of replicates per sampling scheme
-      # print(paste0("MonteCarlo iteration",k))
+     # print(paste0("MonteCarlo iteration",k))
       
       # number of calls to the oracle per sampling location
       for(j in 1:length(OracleCalls)){ 
@@ -480,7 +487,7 @@ SchemeEvaluationData <- function(MonteCarlo = 2,
                                  each=n.boost) 
         #  IQR  
         if(length(idx)==1){
-          iqr.fn[,j] <- rep(pba$est.quant[idx,4] - pba$est.quant[idx,3],each=n.boost)
+          iqr.fn[,j] <- rep(pba$est.quant[idx,4] - pba$est.quant[idx,3],each=n.boost) 
         } else{
           iqr.fn[,j] <- rep(apply(pba$est.quant[idx,],1,function(x)x[4]-x[3]),each=n.boost) 
         }
